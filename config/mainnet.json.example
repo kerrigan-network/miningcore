@@ -1,0 +1,102 @@
+{
+    "clusterName": "kerrigan",
+    "equihashMaxThreads": 4,
+    "pools": [
+        {
+            "id": "krgn-x11",
+            "enabled": true,
+            "coin": "kerrigan-x11",
+            "address": "YOUR_POOL_ADDRESS",
+            "rewardRecipients": [],
+            "blockRefreshInterval": 400,
+            "jobRebroadcastTimeout": 30,
+            "clientConnectionTimeout": 600,
+            "ports": {
+                "7200": {
+                    "listenAddress": "0.0.0.0",
+                    "difficulty": 512,
+                    "varDiff": { "minDiff": 256, "maxDiff": 65536, "targetTime": 15, "retargetTime": 90, "variancePercent": 30 }
+                }
+            },
+            "daemons": [{ "host": "127.0.0.1", "port": 7200, "user": "kerr", "password": "kerr" }],
+            "paymentProcessing": {
+                "enabled": true,
+                "minimumPayment": 1,
+                "payoutScheme": "PPLNS",
+                "payoutSchemeConfig": { "factor": 2.0 }
+            }
+        },
+        {
+            "id": "krgn-kawpow",
+            "enabled": true,
+            "coin": "kerrigan-kawpow",
+            "address": "YOUR_POOL_ADDRESS",
+            "rewardRecipients": [],
+            "blockRefreshInterval": 400,
+            "jobRebroadcastTimeout": 30,
+            "clientConnectionTimeout": 600,
+            "ports": {
+                "7201": {
+                    "listenAddress": "0.0.0.0",
+                    "difficulty": 0.01,
+                    "varDiff": { "minDiff": 0.005, "maxDiff": 256, "targetTime": 15, "retargetTime": 60, "variancePercent": 30 }
+                }
+            },
+            "daemons": [{ "host": "127.0.0.1", "port": 7201, "user": "kerr", "password": "kerr" }],
+            "paymentProcessing": {
+                "enabled": true,
+                "minimumPayment": 1,
+                "payoutScheme": "PPLNS",
+                "payoutSchemeConfig": { "factor": 2.0 }
+            }
+        },
+        {
+            "id": "krgn-equihash-200-9",
+            "enabled": true,
+            "coin": "kerrigan-equihash-200-9",
+            "address": "YOUR_POOL_ADDRESS",
+            "rewardRecipients": [],
+            "blockRefreshInterval": 400,
+            "jobRebroadcastTimeout": 30,
+            "clientConnectionTimeout": 600,
+            "ports": {
+                "7202": {
+                    "listenAddress": "0.0.0.0",
+                    "difficulty": 1,
+                    "varDiff": { "minDiff": 1, "maxDiff": 8192, "targetTime": 15, "retargetTime": 90, "variancePercent": 30 }
+                }
+            },
+            "daemons": [{ "host": "127.0.0.1", "port": 7202, "user": "kerr", "password": "kerr" }],
+            "paymentProcessing": {
+                "enabled": true,
+                "minimumPayment": 1,
+                "payoutScheme": "PPLNS",
+                "payoutSchemeConfig": { "factor": 2.0 }
+            }
+        },
+        {
+            "id": "krgn-equihash-192-7",
+            "enabled": true,
+            "coin": "kerrigan-equihash-192-7",
+            "address": "YOUR_POOL_ADDRESS",
+            "rewardRecipients": [],
+            "blockRefreshInterval": 400,
+            "jobRebroadcastTimeout": 30,
+            "clientConnectionTimeout": 600,
+            "ports": {
+                "7203": {
+                    "listenAddress": "0.0.0.0",
+                    "difficulty": 1,
+                    "varDiff": { "minDiff": 1, "maxDiff": 8192, "targetTime": 15, "retargetTime": 90, "variancePercent": 30 }
+                }
+            },
+            "daemons": [{ "host": "127.0.0.1", "port": 7203, "user": "kerr", "password": "kerr" }],
+            "paymentProcessing": {
+                "enabled": true,
+                "minimumPayment": 1,
+                "payoutScheme": "PPLNS",
+                "payoutSchemeConfig": { "factor": 2.0 }
+            }
+        }
+    ]
+}

@@ -4,6 +4,7 @@ using Autofac;
 using JetBrains.Annotations;
 using Miningcore.Crypto;
 using Miningcore.Crypto.Hashing.Algorithms;
+using Miningcore.Crypto.Hashing.Progpow;
 using NBitcoin;
 using Newtonsoft.Json;
 
@@ -183,6 +184,28 @@ public partial class ErgoCoinTemplate
     public override string GetAlgorithmName()
     {
         return "Autolykos";
+    }
+
+    #endregion
+}
+
+public partial class ProgpowCoinTemplate
+{
+    #region Overrides of CoinTemplate
+
+    public ProgpowCoinTemplate() : base()
+    {
+        progpowLightValue = new Lazy<IProgpowLight>(() =>
+            ProgpowFactory.GetProgpow(Symbol, ComponentContext, Progpower));
+    }
+
+    private readonly Lazy<IProgpowLight> progpowLightValue;
+
+    public IProgpowLight ProgpowHasher => progpowLightValue.Value;
+
+    public override string GetAlgorithmName()
+    {
+        return ProgpowHasher.AlgoName;
     }
 
     #endregion

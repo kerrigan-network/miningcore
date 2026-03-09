@@ -4338,5 +4338,188 @@
         "explorerBlockLink": "https://explorer.ergoplatform.com/en/blocks/$hash$",
         "explorerTxLink": "https://explorer.ergoplatform.com/en/transactions/{0}",
         "explorerAccountLink": "https://explorer.ergoplatform.com/en/addresses/{0}"
+    },
+    "kerrigan-x11": {
+        "name": "Kerrigan X11",
+        "canonicalName": "Kerrigan",
+        "symbol": "KRGN",
+        "family": "bitcoin",
+        "website": "https://kerrigan.network",
+        "market": "",
+        "twitter": "",
+        "telegram": "",
+        "discord": "https://discord.gg/yzVKDTxf",
+        "coinbaseHasher": {
+            "hash": "sha256d"
+        },
+        "headerHasher": {
+            "hash": "x11"
+        },
+        "blockHasher": {
+            "hash": "reverse",
+            "args": [
+                {
+                    "hash": "x11"
+                }
+            ]
+        },
+        "hasMasterNodes": true,
+        "explorerBlockLink": "",
+        "explorerTxLink": "",
+        "explorerAccountLink": ""
+    },
+    "kerrigan-equihash-200-9": {
+        "name": "Kerrigan Equihash 200,9",
+        "canonicalName": "Kerrigan",
+        "symbol": "KRGN",
+        "family": "equihash",
+        "website": "https://kerrigan.network",
+        "market": "",
+        "twitter": "",
+        "telegram": "",
+        "discord": "https://discord.gg/yzVKDTxf",
+        "usesZCashAddressFormat": false,
+        "useBitcoinPayoutHandler": true,
+        "networks": {
+            "main": {
+                "diff1": "0007ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                "solutionSize": 1344,
+                "solutionPreambleSize": 3,
+                "solver": {
+                    "hash": "equihash",
+                    "args": [
+                        200,
+                        9,
+                        "ZcashPoW"
+                    ]
+                },
+                "coinbaseTxNetwork": "main",
+                "payFoundersReward": false
+            },
+            "test": {
+                "diff1": "0007ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                "solutionSize": 1344,
+                "solutionPreambleSize": 3,
+                "solver": {
+                    "hash": "equihash",
+                    "args": [
+                        200,
+                        9,
+                        "ZcashPoW"
+                    ]
+                },
+                "coinbaseTxNetwork": "testnet",
+                "payFoundersReward": false
+            },
+            "regtest": {
+                "diff1": "0007ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                "solutionSize": 1344,
+                "solutionPreambleSize": 3,
+                "solver": {
+                    "hash": "equihash",
+                    "args": [
+                        200,
+                        9,
+                        "ZcashPoW"
+                    ]
+                },
+                "coinbaseTxNetwork": "regtest",
+                "payFoundersReward": false
+            }
+        },
+        "explorerBlockLink": "",
+        "explorerTxLink": "",
+        "explorerAccountLink": "",
+        "hasMasterNodes": true
+    },
+    "kerrigan-equihash-192-7": {
+        "name": "Kerrigan Equihash 192,7",
+        "canonicalName": "Kerrigan",
+        "symbol": "KRGN",
+        "family": "equihash",
+        "website": "https://kerrigan.network",
+        "market": "",
+        "twitter": "",
+        "telegram": "",
+        "discord": "https://discord.gg/yzVKDTxf",
+        "usesZCashAddressFormat": false,
+        "useBitcoinPayoutHandler": true,
+        "networks": {
+            "main": {
+                "diff1": "0A5FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEB4",
+                "solutionSize": 400,
+                "solutionPreambleSize": 3,
+                "solver": {
+                    "hash": "equihash",
+                    "args": [
+                        192,
+                        7,
+                        "kerrigan"
+                    ]
+                },
+                "coinbaseTxNetwork": "main",
+                "payFoundersReward": false
+            },
+            "test": {
+                "diff1": "0A5FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEB4",
+                "solutionSize": 400,
+                "solutionPreambleSize": 3,
+                "solver": {
+                    "hash": "equihash",
+                    "args": [
+                        192,
+                        7,
+                        "kerrigan"
+                    ]
+                },
+                "coinbaseTxNetwork": "testnet",
+                "payFoundersReward": false
+            },
+            "regtest": {
+                "diff1": "0A5FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEB4",
+                "solutionSize": 400,
+                "solutionPreambleSize": 3,
+                "solver": {
+                    "hash": "equihash",
+                    "args": [
+                        192,
+                        7,
+                        "kerrigan"
+                    ]
+                },
+                "coinbaseTxNetwork": "regtest",
+                "payFoundersReward": false
+            }
+        },
+        "explorerBlockLink": "",
+        "explorerTxLink": "",
+        "explorerAccountLink": "",
+        "hasMasterNodes": true
+    },
+    "kerrigan-kawpow": {
+        "name": "Kerrigan",
+        "canonicalName": "Kerrigan-KawPoW",
+        "symbol": "KRGN",
+        "family": "progpow",
+        "progpower": "kawpow",
+        "hasMasterNodes": true,
+        "shareMultiplier": 1,
+        "coinbaseHasher": {
+            "hash": "sha256d"
+        },
+        "headerHasher": {
+            "hash": "sha256d"
+        },
+        "blockHasher": {
+            "hash": "reverse",
+            "args": [
+                {
+                    "hash": "sha256d"
+                }
+            ]
+        },
+        "explorerBlockLink": "",
+        "explorerTxLink": "",
+        "explorerAccountLink": ""
     }
 }

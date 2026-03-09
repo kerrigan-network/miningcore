@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Globalization;
+using System.Linq;
 using System.Reflection;
 using Miningcore.Blockchain.Bitcoin;
 using Miningcore.Blockchain.Equihash.DaemonResponses;
@@ -15,6 +16,9 @@ using Miningcore.Util;
 using NBitcoin;
 using NBitcoin.DataEncoders;
 using NBitcoin.Zcash;
+using MasterNodeExtra = Miningcore.Blockchain.Bitcoin.DaemonResponses.MasterNodeBlockTemplateExtra;
+using Masternode = Miningcore.Blockchain.Bitcoin.DaemonResponses.Masternode;
+using Newtonsoft.Json.Linq;
 
 namespace Miningcore.Blockchain.Equihash;
 
@@ -41,6 +45,9 @@ public class EquihashJob
     protected byte[] merkleRootReversed;
     protected string merkleRootReversedHex;
     protected EquihashSolver solver;
+
+    protected MasterNodeExtra masterNodeParameters;
+    protected bool hasMasterNodes;
 
     // ZCash Sapling & Overwinter support
     protected bool isOverwinterActive;
@@ -70,7 +77,7 @@ public class EquihashJob
         // set versions
         tx.Version = txVersion;
 
-        if(isOverwinterActive)
+        if(!hasMasterNodes && isOverwinterActive)
         {
             overwinterField.SetValue(tx, true);
             versionGroupField.SetValue(tx, txVersionGroupId);
@@ -142,6 +149,48 @@ public class EquihashJob
             tx.Outputs.Add(rewardToPool, poolAddressDestination);
         }
 
+        // Dash-family masternode outputs
+        if(hasMasterNodes && masterNodeParameters != null)
+        {
+            if(masterNodeParameters.Masternode != null)
+            {
+                Masternode[] masternodes;
+
+                if(masterNodeParameters.Masternode.Type == JTokenType.Array)
+                    masternodes = masterNodeParameters.Masternode.ToObject<Masternode[]>();
+                else
+                    masternodes = new[] { masterNodeParameters.Masternode.ToObject<Masternode>() };
+
+                if(masternodes != null)
+                {
+                    foreach(var masterNode in masternodes)
+                    {
+                        if(!string.IsNullOrEmpty(masterNode.Payee))
+                        {
+                            var payeeDestination = BitcoinUtils.AddressToDestination(masterNode.Payee, network);
+                            var payeeReward = masterNode.Amount;
+                            tx.Outputs.Add(payeeReward, payeeDestination);
+                            rewardToPool -= payeeReward;
+                        }
+                    }
+                }
+            }
+
+            if(masterNodeParameters.SuperBlocks is { Length: > 0 })
+            {
+                foreach(var superBlock in masterNodeParameters.SuperBlocks)
+                {
+                    var payeeAddress = BitcoinUtils.AddressToDestination(superBlock.Payee, network);
+                    var payeeReward = superBlock.Amount;
+                    tx.Outputs.Add(payeeReward, payeeAddress);
+                    rewardToPool -= payeeReward;
+                }
+            }
+
+            // Update the pool output with the reduced reward (after masternode deductions)
+            tx.Outputs[0].Value = rewardToPool;
+        }
+
         tx.Inputs.Add(TxIn.CreateCoinbase((int) BlockTemplate.Height));
 
         return tx;
@@ -163,8 +212,25 @@ public class EquihashJob
 
         using(var stream = new MemoryStream())
         {
-            var bs = new ZcashStream(stream, true);
-            bs.ReadWrite(ref txOut);
+            if(hasMasterNodes)
+            {
+                // Dash-family: use Bitcoin serialization
+                var bs = new BitcoinStream(stream, true);
+                bs.ReadWrite(ref txOut);
+
+                // Append coinbase_payload (CbTx extra data)
+                if(masterNodeParameters != null && !string.IsNullOrEmpty(masterNodeParameters.CoinbasePayload))
+                {
+                    var data = masterNodeParameters.CoinbasePayload.HexToByteArray();
+                    bs.ReadWriteAsVarString(ref data);
+                }
+            }
+            else
+            {
+                // ZCash-family: use ZCash serialization
+                var bs = new ZcashStream(stream, true);
+                bs.ReadWrite(ref txOut);
+            }
 
             // done
             coinbaseInitial = stream.ToArray();
@@ -360,6 +426,20 @@ public class EquihashJob
         // Misc
         this.solver = solver;
 
+        // Dash-family masternode support (detect from blocktemplate extras)
+        if(BlockTemplate.Extra != null)
+        {
+            masterNodeParameters = BlockTemplate.Extra.SafeExtensionDataAs<MasterNodeExtra>();
+            hasMasterNodes = masterNodeParameters != null && !string.IsNullOrEmpty(masterNodeParameters.CoinbasePayload);
+        }
+
+        if(hasMasterNodes)
+        {
+            txVersion = 3;
+            const uint txType = 5;
+            txVersion += txType << 16;  // 0x00050003 = CbTx type 5, version 3
+        }
+
         if(!string.IsNullOrEmpty(BlockTemplate.Target))
             blockTargetValue = new uint256(BlockTemplate.Target);
         else
@@ -373,7 +453,7 @@ public class EquihashJob
             .ReverseInPlace()
             .ToHexString();
 
-        if(blockTemplate.Subsidy != null)
+        if(blockTemplate.Subsidy != null && !hasMasterNodes)
             blockReward = blockTemplate.Subsidy.Miner * BitcoinConstants.SatoshisPerBitcoin;
         else
             blockReward = BlockTemplate.CoinbaseValue;
@@ -416,17 +496,48 @@ public class EquihashJob
             blockTemplate.FinalSaplingRootHash.HexToReverseByteArray().ToHexString() :
             sha256Empty.ToHexString();
 
-        jobParams = new object[]
+        // Build job params - add personalization for custom equihash (e.g., 192,7 with "kerrigan")
+        string personalization = null;
+        var solverArgs = networkParams.Solver?["args"];
+
+        if(solverArgs != null && solverArgs.Count() >= 3)
         {
-            JobId,
-            BlockTemplate.Version.ReverseByteOrder().ToStringHex8(),
-            previousBlockHashReversedHex,
-            merkleRootReversedHex,
-            hashReserved,
-            BlockTemplate.CurTime.ReverseByteOrder().ToStringHex8(),
-            BlockTemplate.Bits.HexToReverseByteArray().ToHexString(),
-            false
-        };
+            var pers = solverArgs[2]?.Value<string>();
+
+            if(!string.IsNullOrEmpty(pers) && pers != "ZcashPoW")
+                personalization = pers;
+        }
+
+        if(personalization != null)
+        {
+            jobParams = new object[]
+            {
+                JobId,
+                BlockTemplate.Version.ReverseByteOrder().ToStringHex8(),
+                previousBlockHashReversedHex,
+                merkleRootReversedHex,
+                hashReserved,
+                BlockTemplate.CurTime.ReverseByteOrder().ToStringHex8(),
+                BlockTemplate.Bits.HexToReverseByteArray().ToHexString(),
+                false,  // cleanJobs (index 7)
+                false,  // extended protocol flag
+                personalization  // e.g. "kerrigan" for eq192
+            };
+        }
+        else
+        {
+            jobParams = new object[]
+            {
+                JobId,
+                BlockTemplate.Version.ReverseByteOrder().ToStringHex8(),
+                previousBlockHashReversedHex,
+                merkleRootReversedHex,
+                hashReserved,
+                BlockTemplate.CurTime.ReverseByteOrder().ToStringHex8(),
+                BlockTemplate.Bits.HexToReverseByteArray().ToHexString(),
+                false  // cleanJobs (index 7)
+            };
+        }
     }
 
     public EquihashBlockTemplate BlockTemplate { get; protected set; }
@@ -470,7 +581,7 @@ public class EquihashJob
 
     public object GetJobParams(bool isNew)
     {
-        jobParams[^1] = isNew;
+        jobParams[7] = isNew;  // cleanJobs is always at index 7
         return jobParams;
     }
 
