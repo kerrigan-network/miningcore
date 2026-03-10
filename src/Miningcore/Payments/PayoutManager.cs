@@ -142,6 +142,10 @@ public class PayoutManager : BackgroundService
                     return CoinFamily.Bitcoin;
 
                 break;
+
+            case CoinFamily.Progpow:
+                // All progpow coins (KawPoW, etc.) use standard Bitcoin payment mechanics
+                return CoinFamily.Bitcoin;
         }
 
         return family;
