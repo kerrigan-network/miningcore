@@ -156,13 +156,13 @@ public class ProgpowJob : BitcoinJob
         {
             var bs = new BitcoinStream(stream, true);
 
-            bs.ReadWrite(header);
+            bs.ReadWrite(ref header);
             bs.ReadWrite(ref nonce);
-            bs.ReadWrite(mixHash);
+            bs.ReadWrite(ref mixHash);
             bs.ReadWriteAsVarInt(ref transactionCount);
 
-            bs.ReadWrite(coinbase);
-            bs.ReadWrite(rawTransactionBuffer);
+            bs.ReadWrite(ref coinbase);
+            bs.ReadWrite(ref rawTransactionBuffer);
 
             return stream.ToArray();
         }

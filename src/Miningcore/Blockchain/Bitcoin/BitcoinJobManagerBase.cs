@@ -294,7 +294,7 @@ public abstract class BitcoinJobManagerBase<TJob> : JobManagerBase<TJob>
             messageBus.SendMessage(new AdminNotification($"[{share.PoolId.ToUpper()}]-[{share.Source}] Block submission failed", $"[{share.PoolId.ToUpper()}]-[{share.Source}] Block {share.BlockHeight} submission failed for pool {poolConfig.Id} because block was not found after submission"));
         }
 
-        return new SubmitResult(accepted, block?.Transactions.FirstOrDefault());
+        return new SubmitResult(accepted, block?.Transactions?.FirstOrDefault());
     }
 
     protected async Task<bool> AreDaemonsHealthyLegacyAsync(CancellationToken ct)

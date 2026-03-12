@@ -354,7 +354,9 @@ public class EquihashJob
             var headerHashReversed = headerHash.ToNewReverseArray();
 
             result.IsBlockCandidate = true;
-            result.BlockReward = rewardToPool.ToDecimal(MoneyUnit.BTC);
+            result.BlockReward = rewardToPool != null
+                ? rewardToPool.ToDecimal(MoneyUnit.BTC)
+                : blockReward / BitcoinConstants.SatoshisPerBitcoin;
             result.BlockHash = headerHashReversed.ToHexString();
 
             var blockBytes = SerializeBlock(headerBytes, coinbaseInitial, solutionBytes);
@@ -520,7 +522,7 @@ public class EquihashJob
                 BlockTemplate.CurTime.ReverseByteOrder().ToStringHex8(),
                 BlockTemplate.Bits.HexToReverseByteArray().ToHexString(),
                 false,  // cleanJobs (index 7)
-                false,  // extended protocol flag
+                $"{solverArgs[0]}_{solverArgs[1]}",
                 personalization  // e.g. "kerrigan" for eq192
             };
         }

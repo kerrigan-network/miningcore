@@ -395,10 +395,6 @@ public class EquihashPool : PoolBase
         {
             await connection.NotifyAsync(EquihashStratumMethods.SetTarget, new object[] { EncodeTarget(connection.Context.Difficulty) });
 
-            // Do NOT re-send mining.notify for MN coins — re-sending currentJobParams
-            // with cleanJobs=true on the same jobId causes miniZ to zombie
-            if(!coin.HasMasterNodes)
-                await connection.NotifyAsync(BitcoinStratumMethods.MiningNotify, currentJobParams);
         }
     }
 
