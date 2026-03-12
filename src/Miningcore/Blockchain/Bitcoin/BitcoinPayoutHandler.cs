@@ -149,8 +149,8 @@ public class BitcoinPayoutHandler : PayoutHandlerBase,
                         case "immature":
                             // update progress
                             block.ConfirmationProgress = Math.Min(1.0d, (double) transactionInfo.Confirmations / minConfirmations);
-                            // For masternode coins, top-level Amount is 0 (net wallet flow); use Details[0].Amount instead
-                            block.Reward = transactionInfo.Amount == 0 && transactionInfo.Details?.Length > 0 && transactionInfo.Details[0].Amount > 0
+                            // MN coins: pool share is in details[0], top-level amount is 0
+                            block.Reward = transactionInfo.Details?.Length > 0
                                 ? transactionInfo.Details[0].Amount
                                 : transactionInfo.Amount;
                             result.Add(block);
@@ -162,8 +162,8 @@ public class BitcoinPayoutHandler : PayoutHandlerBase,
                             // matured and spendable coinbase transaction
                             block.Status = BlockStatus.Confirmed;
                             block.ConfirmationProgress = 1;
-                            // For masternode coins, top-level Amount is 0 (net wallet flow); use Details[0].Amount instead
-                            block.Reward = transactionInfo.Amount == 0 && transactionInfo.Details?.Length > 0 && transactionInfo.Details[0].Amount > 0
+                            // MN coins: pool share is in details[0], top-level amount is 0
+                            block.Reward = transactionInfo.Details?.Length > 0
                                 ? transactionInfo.Details[0].Amount
                                 : transactionInfo.Amount;
                             result.Add(block);

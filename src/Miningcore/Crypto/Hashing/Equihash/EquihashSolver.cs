@@ -112,6 +112,41 @@ public unsafe class EquihashSolver_144_5 : EquihashSolver
     }
 }
 
+public unsafe class EquihashSolver_192_7 : EquihashSolver
+{
+    public EquihashSolver_192_7(string personalization)
+    {
+        this.personalization = personalization;
+    }
+
+    public override bool Verify(ReadOnlySpan<byte> header, ReadOnlySpan<byte> solution)
+    {
+        var sw = Stopwatch.StartNew();
+
+        try
+        {
+            sem.Value.WaitOne();
+
+            fixed (byte* h = header)
+            {
+                fixed (byte* s = solution)
+                {
+                    var result = Multihash.equihash_verify_192_7(h, header.Length, s, solution.Length, personalization);
+
+                    messageBus?.SendTelemetry("Equihash 192-7", TelemetryCategory.Hash, sw.Elapsed, result);
+
+                    return result;
+                }
+            }
+        }
+
+        finally
+        {
+            sem.Value.Release();
+        }
+    }
+}
+
 public unsafe class EquihashSolver_96_5 : EquihashSolver
 {
     public EquihashSolver_96_5(string personalization)

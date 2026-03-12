@@ -5,6 +5,7 @@ using Miningcore.Banning;
 using Miningcore.Blockchain.Bitcoin;
 using Miningcore.Blockchain.Cryptonote;
 using Miningcore.Blockchain.Equihash;
+using Miningcore.Blockchain.Progpow;
 using Miningcore.Blockchain.Ethereum;
 using Miningcore.Configuration;
 using Miningcore.Crypto;
@@ -165,9 +166,13 @@ public class AutofacModule : Module
         builder.RegisterType<EquihashJobManager>();
 
         //////////////////////
+        // Progpow (KawPoW)
+
+        builder.RegisterType<ProgpowJobManager>();
+
+        //////////////////////
         // Ergo
 
-        builder.RegisterType<EquihashJobManager>();
         builder.RegisterType<ErgoJobManager>();
 
         base.Load(builder);
