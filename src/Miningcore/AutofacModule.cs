@@ -22,6 +22,8 @@ using Module = Autofac.Module;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.IO;
 using Miningcore.Blockchain.Ergo;
+using Miningcore.Crypto.Hashing.Progpow;
+using Miningcore.Crypto.Hashing.Progpow.Kawpow;
 using Miningcore.Nicehash;
 using Miningcore.Pushover;
 
@@ -167,6 +169,9 @@ public class AutofacModule : Module
 
         //////////////////////
         // Progpow (KawPoW)
+
+        builder.RegisterType<KawpowLight>()
+            .Named<IProgpowLight>("kawpow");
 
         builder.RegisterType<ProgpowJobManager>();
 

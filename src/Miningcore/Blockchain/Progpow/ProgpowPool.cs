@@ -222,7 +222,7 @@ public class ProgpowPool : PoolBase
             await connection.RespondAsync(true, request.Id);
 
             // publish
-            messageBus.SendMessage(share);
+            messageBus.SendMessage(new StratumShare(connection, share));
 
             // telemetry
             PublishTelemetry(TelemetryCategory.Share, clock.Now - tsRequest.Timestamp.UtcDateTime, true);

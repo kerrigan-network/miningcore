@@ -279,14 +279,38 @@ public abstract class BitcoinJobManagerBase<TJob> : JobManagerBase<TJob>
         if(!string.IsNullOrEmpty(submitError))
         {
             logger.Warn(() => $"Block {share.BlockHeight} submission failed with: {submitError}");
-            messageBus.SendMessage(new AdminNotification("Block submission failed", $"Pool {poolConfig.Id} {(!string.IsNullOrEmpty(share.Source) ? $"[{share.Source.ToUpper()}] " : string.Empty)}failed to submit block {share.BlockHeight}: {submitError}"));
-            return new SubmitResult(false, null);
+
+            // "inconclusive" means daemon is unsure - fall through to height-based verification
+            if(!submitError.Equals("inconclusive", StringComparison.OrdinalIgnoreCase))
+            {
+                messageBus.SendMessage(new AdminNotification("Block submission failed", $"Pool {poolConfig.Id} {(!string.IsNullOrEmpty(share.Source) ? $"[{share.Source.ToUpper()}] " : string.Empty)}failed to submit block {share.BlockHeight}: {submitError}"));
+                return new SubmitResult(false, null);
+            }
         }
 
         // was it accepted?
         var acceptResult = results[1];
         var block = acceptResult.Response?.ToObject<DaemonResponses.Block>();
         var accepted = acceptResult.Error == null && block?.Hash == share.BlockHash;
+
+        if(!accepted)
+        {
+            // Fallback: verify by height (needed when block identity hash differs from SHA256D, e.g. X11)
+            var hashResult = await rpc.ExecuteAsync<string>(logger, "getblockhash", ct,
+                new object[] { (long) share.BlockHeight });
+
+            if(hashResult.Error == null && !string.IsNullOrEmpty(hashResult.Response))
+            {
+                var blockResult = await rpc.ExecuteAsync<DaemonResponses.Block>(logger,
+                    BitcoinCommands.GetBlock, ct, new[] { hashResult.Response });
+
+                if(blockResult.Error == null && blockResult.Response != null)
+                {
+                    block = blockResult.Response;
+                    accepted = true;
+                }
+            }
+        }
 
         if(!accepted)
         {
