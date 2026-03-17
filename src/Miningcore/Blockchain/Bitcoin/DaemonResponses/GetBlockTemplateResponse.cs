@@ -88,6 +88,12 @@ public class BlockTemplate
     [JsonProperty("default_witness_commitment")]
     public string DefaultWitnessCommitment { get; set; }
 
+    /// <summary>
+    /// Pre-built coinbase transaction (when daemon provides one via pooladdress)
+    /// </summary>
+    [JsonProperty("coinbasetxn")]
+    public BitcoinBlockTransaction CoinbaseTx { get; set; }
+
     [JsonExtensionData]
     public IDictionary<string, object> Extra { get; set; }
 }

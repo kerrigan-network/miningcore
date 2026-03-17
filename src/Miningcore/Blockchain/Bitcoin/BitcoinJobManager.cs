@@ -10,6 +10,7 @@ using Miningcore.Messaging;
 using Miningcore.Rpc;
 using Miningcore.Stratum;
 using Miningcore.Time;
+using Miningcore.Blockchain.Bitcoin.Custom.Kerrigan;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using NLog;
@@ -61,6 +62,9 @@ public class BitcoinJobManager : BitcoinJobManagerBase<BitcoinJob>
 
     private BitcoinJob CreateJob()
     {
+        if(coin.Symbol == "KRGN")
+            return new KerriganBitcoinJob();
+
         return new();
     }
 

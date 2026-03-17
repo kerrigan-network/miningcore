@@ -2,6 +2,7 @@ using System.Text;
 using NBitcoin.DataEncoders;
 using Miningcore.Blockchain.Bitcoin;
 using Miningcore.Blockchain.Bitcoin.DaemonResponses;
+using Miningcore.Extensions;
 using NBitcoin;
 using Newtonsoft.Json.Linq;
 
@@ -9,6 +10,34 @@ namespace Miningcore.Blockchain.Progpow.Custom.Kerrigan;
 
 public class KerriganProgpowJob : ProgpowJob
 {
+    private bool useDaemonCoinbase;
+
+    protected override void BuildCoinbase()
+    {
+        // If the daemon provided a pre-built coinbase (via pooladdress + rpcalgoport),
+        // use it directly. KawPoW puts the extranonce in the block header (nonce64),
+        // not the coinbase, so no injection is needed.
+        if(BlockTemplate.CoinbaseTx != null && !string.IsNullOrEmpty(BlockTemplate.CoinbaseTx.Data))
+        {
+            useDaemonCoinbase = true;
+            coinbaseInitial = BlockTemplate.CoinbaseTx.Data.HexToByteArray();
+            coinbaseFinal = Array.Empty<byte>();
+            rewardToPool = new Money(BlockTemplate.CoinbaseValue, MoneyUnit.Satoshi);
+            return;
+        }
+
+        // Fallback: build coinbase ourselves (pre-masternode or missing pooladdress)
+        base.BuildCoinbase();
+    }
+
+    protected override byte[] SerializeCoinbase(string extraNonce1)
+    {
+        if(useDaemonCoinbase)
+            return coinbaseInitial;
+
+        return base.SerializeCoinbase(extraNonce1);
+    }
+
     protected override byte[] SerializeHeader(Span<byte> coinbaseHash)
     {
         var merkleRoot = mt.WithFirst(coinbaseHash.ToArray());
@@ -24,7 +53,7 @@ public class KerriganProgpowJob : ProgpowJob
             HashPrevBlock = uint256.Parse(BlockTemplate.PreviousBlockhash),
             HashMerkleRoot = new uint256(merkleRoot),
             BlockTime = DateTimeOffset.FromUnixTimeSeconds(BlockTemplate.CurTime),
-            Nonce = 0  // Kerrigan KawPoW uses nNonce=0; height is in separate nHeight field
+            Nonce = 0
         };
 
         return blockHeader.ToBytes();
@@ -37,20 +66,20 @@ public class KerriganProgpowJob : ProgpowJob
 
         using var stream = new MemoryStream();
         {
-            stream.Write(header, 0, header.Length);          // 80-byte header
+            stream.Write(header, 0, header.Length);
 
-            // Kerrigan KawPoW: nHeight (uint32 LE) between header and nNonce64
+            // nHeight (uint32 LE) between header and nNonce64
             var nHeightBytes = BitConverter.GetBytes((uint) BlockTemplate.Height);
             stream.Write(nHeightBytes, 0, 4);
 
-            var nonceBytes = BitConverter.GetBytes(nonce);   // nNonce64 (uint64 LE)
+            var nonceBytes = BitConverter.GetBytes(nonce);
             stream.Write(nonceBytes, 0, 8);
 
-            stream.Write(mixHash, 0, mixHash.Length);        // mix_hash (32 bytes)
+            stream.Write(mixHash, 0, mixHash.Length);
 
-            WriteCompactSize(stream, transactionCount);      // varint tx count
-            stream.Write(coinbase, 0, coinbase.Length);      // coinbase tx
-            stream.Write(rawTransactionBuffer, 0, rawTransactionBuffer.Length); // remaining txs
+            WriteCompactSize(stream, transactionCount);
+            stream.Write(coinbase, 0, coinbase.Length);
+            stream.Write(rawTransactionBuffer, 0, rawTransactionBuffer.Length);
 
             return stream.ToArray();
         }
@@ -72,7 +101,25 @@ public class KerriganProgpowJob : ProgpowJob
         }
     }
 
-    protected override Money CreateMasternodeOutputs(NBitcoin.Transaction tx, Money reward)
+    protected override Transaction CreateOutputTransaction()
+    {
+        rewardToPool = new Money(BlockTemplate.CoinbaseValue, MoneyUnit.Satoshi);
+        var tx = Transaction.Create(network);
+
+        // Pool output at index 0 (Dash-fork convention)
+        tx.Outputs.Add(rewardToPool, poolAddressDestination);
+
+        if(coin.HasMasterNodes)
+        {
+            var deducted = CreateMasternodeOutputs(tx, rewardToPool);
+            tx.Outputs[0].Value = deducted;
+            rewardToPool = deducted;
+        }
+
+        return tx;
+    }
+
+    protected override Money CreateMasternodeOutputs(Transaction tx, Money reward)
     {
         if(masterNodeParameters.Masternode != null)
         {
@@ -87,11 +134,11 @@ public class KerriganProgpowJob : ProgpowJob
             {
                 foreach(var masterNode in masternodes)
                 {
-                    if(!string.IsNullOrEmpty(masterNode.Payee))
+                    if(!string.IsNullOrEmpty(masterNode.Script))
                     {
-                        var payeeDestination = BitcoinUtils.AddressToDestination(masterNode.Payee, network);
+                        var payeeScript = new Script(masterNode.Script.HexToByteArray());
                         var payeeReward = masterNode.Amount;
-                        tx.Outputs.Add(payeeReward, payeeDestination);
+                        tx.Outputs.Add(payeeReward, payeeScript);
                         reward -= payeeReward;
                     }
                 }

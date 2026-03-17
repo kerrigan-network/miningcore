@@ -2,6 +2,7 @@ using Autofac;
 using Miningcore.Blockchain.Bitcoin;
 using Miningcore.Blockchain.Bitcoin.DaemonResponses;
 using Miningcore.Blockchain.Equihash.Custom.BitcoinGold;
+using Miningcore.Blockchain.Equihash.Custom.Kerrigan;
 using Miningcore.Blockchain.Equihash.Custom.Minexcoin;
 using Miningcore.Blockchain.Equihash.DaemonResponses;
 using Miningcore.Configuration;
@@ -85,6 +86,9 @@ public class EquihashJobManager : BitcoinJobManagerBase<EquihashJob>
 
             case "MNX":
                 return new MinexcoinJob();
+
+            case "KRGN":
+                return new KerriganEquihashJob();
         }
 
         return new EquihashJob();
