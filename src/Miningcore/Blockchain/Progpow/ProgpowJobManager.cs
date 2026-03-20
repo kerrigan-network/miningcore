@@ -249,6 +249,9 @@ public class ProgpowJobManager : BitcoinJobManagerBase<ProgpowJob>
         if(submission is not object[] submitParams)
             throw new StratumException(StratumError.Other, "invalid params");
 
+        if(submitParams.Length < 5)
+            throw new StratumException(StratumError.Other, "invalid param count");
+
         var context = worker.ContextAs<ProgpowWorkerContext>();
 
         // extract params

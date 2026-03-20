@@ -103,7 +103,7 @@ public class KerriganProgpowJob : ProgpowJob
 
     protected override Transaction CreateOutputTransaction()
     {
-        rewardToPool = new Money(BlockTemplate.CoinbaseValue, MoneyUnit.Satoshi);
+        rewardToPool = BlockTemplate.Extra.SafeExtensionDataAs<long>("coinbasevalue_miner", BlockTemplate.CoinbaseValue);
         var tx = Transaction.Create(network);
 
         // Pool output at index 0 (Dash-fork convention)

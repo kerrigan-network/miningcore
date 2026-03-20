@@ -14,6 +14,30 @@ public static class SerializationExtensions
         }
     };
 
+    public static T SafeExtensionDataAs<T>(this IDictionary<string, object> extra, string key, T defaultValue)
+    {
+        if(extra == null)
+            return defaultValue;
+
+        try
+        {
+            object o = extra;
+
+            if(o is IDictionary<string, object> dict && dict.TryGetValue(key, out var val))
+                return JToken.FromObject(val).ToObject<T>(serializer);
+
+            if(o is JObject jo && jo.TryGetValue(key, out var jVal))
+                return jVal.ToObject<T>(serializer);
+        }
+
+        catch
+        {
+            // ignored
+        }
+
+        return defaultValue;
+    }
+
     public static T SafeExtensionDataAs<T>(this IDictionary<string, object> extra, params string[] wrappers)
     {
         if(extra == null)

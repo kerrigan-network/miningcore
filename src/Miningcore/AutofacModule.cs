@@ -171,7 +171,8 @@ public class AutofacModule : Module
         // Progpow (KawPoW)
 
         builder.RegisterType<KawpowLight>()
-            .Named<IProgpowLight>("kawpow");
+            .Named<IProgpowLight>("kawpow")
+            .SingleInstance();
 
         builder.RegisterType<ProgpowJobManager>();
 
