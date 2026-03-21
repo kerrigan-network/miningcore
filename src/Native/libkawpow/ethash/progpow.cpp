@@ -143,10 +143,28 @@ inline void random_merge(uint32_t& a, uint32_t b, uint32_t selector) noexcept
     }
 }
 
-// Default: KERRIGAN constants for Kerrigan KawPoW mining.
-// For RVN/standard KawPoW compatibility (e.g. testing), build with -DRAVENCOIN_KAWPOW.
+// Default: RAVENCOIN constants (standard KawPoW, matches daemon consensus).
+// For Kerrigan-specific KawPoW, build with -DKERRIGAN_KAWPOW.
 // Pool and daemon MUST use matching constants or blocks will be rejected ("high-hash").
-#ifndef RAVENCOIN_KAWPOW
+#ifndef KERRIGAN_KAWPOW
+static const uint32_t ravencoin_kawpow[15] = {
+        0x00000072, //r
+        0x00000041, //A
+        0x00000056, //V
+        0x00000045, //E
+        0x0000004E, //N
+        0x00000043, //C
+        0x0000004F, //O
+        0x00000049, //I
+        0x0000004E, //N
+        0x0000004B, //K
+        0x00000041, //A
+        0x00000057, //W
+        0x00000050, //P
+        0x0000004F, //O
+        0x00000057  //W
+};
+#else
 static const uint32_t ravencoin_kawpow[15] = {
         0x0000004B, //K
         0x00000045, //E
@@ -157,24 +175,6 @@ static const uint32_t ravencoin_kawpow[15] = {
         0x00000041, //A
         0x0000004E, //N
         0x00000000, //\0
-        0x0000004B, //K
-        0x00000041, //A
-        0x00000057, //W
-        0x00000050, //P
-        0x0000004F, //O
-        0x00000057  //W
-};
-#else
-static const uint32_t ravencoin_kawpow[15] = {
-        0x00000072, //R
-        0x00000041, //A
-        0x00000056, //V
-        0x00000045, //E
-        0x0000004E, //N
-        0x00000043, //C
-        0x0000004F, //O
-        0x00000049, //I
-        0x0000004E, //N
         0x0000004B, //K
         0x00000041, //A
         0x00000057, //W
