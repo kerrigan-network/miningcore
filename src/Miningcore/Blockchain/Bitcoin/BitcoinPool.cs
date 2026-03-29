@@ -228,7 +228,8 @@ public class BitcoinPool : PoolBase
 
         try
         {
-            var requestedDiff = (double) Convert.ChangeType(request.Params, TypeCode.Double)!;
+            var rawParams = request.Params is Newtonsoft.Json.Linq.JArray arr ? arr.First : request.Params;
+            var requestedDiff = (double) Convert.ChangeType(rawParams, TypeCode.Double)!;
 
             // client may suggest higher-than-base difficulty, but not a lower one
             var poolEndpoint = poolConfig.Ports[connection.LocalEndpoint.Port];
