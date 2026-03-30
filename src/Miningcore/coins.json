@@ -4501,7 +4501,7 @@
         "canonicalName": "Kerrigan-KawPoW",
         "symbol": "KRGN",
         "family": "progpow",
-        "progpower": "kawpow",
+        "progpower": "kerrigankawpow",
         "hasMasterNodes": true,
         "shareMultiplier": 1,
         "coinbaseHasher": {
