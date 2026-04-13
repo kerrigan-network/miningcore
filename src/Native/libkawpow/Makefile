@@ -4,8 +4,8 @@ LDFLAGS += -shared
 TARGET = libkawpow.so
 TARGET_KERRIGAN = libkerrigankawpow.so
 
-OBJECTS = ethash/ethash.o keccak/keccak.o keccak/keccakf800.o keccak/keccakf1600.o ethash/managed.o ethash/primes.o ethash/progpow.o
-KERRIGAN_OBJECTS = ethash/ethash_kerrigan.o keccak/keccak.o keccak/keccakf800.o keccak/keccakf1600.o ethash/managed_kerrigan.o ethash/primes.o ethash/progpow_kerrigan.o
+OBJECTS = ethash/ethash.o keccak/keccak.o keccak/keccakf800.o keccak/keccakf1600.o ethash/managed.o ethash/primes.o ethash/progpow.o exports.o
+KERRIGAN_OBJECTS = ethash/ethash_kerrigan.o keccak/keccak.o keccak/keccakf800.o keccak/keccakf1600.o ethash/managed_kerrigan.o ethash/primes.o ethash/progpow_kerrigan.o exports.o
 
 all: $(TARGET) $(TARGET_KERRIGAN)
 
