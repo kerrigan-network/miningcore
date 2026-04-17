@@ -4501,7 +4501,7 @@
         "canonicalName": "Kerrigan-KawPoW",
         "symbol": "KRGN",
         "family": "progpow",
-        "progpower": "kerrigankawpow",
+        "progpower": "kawpow",
         "hasMasterNodes": true,
         "shareMultiplier": 1,
         "coinbaseHasher": {
@@ -4511,12 +4511,7 @@
             "hash": "sha256d"
         },
         "blockHasher": {
-            "hash": "reverse",
-            "args": [
-                {
-                    "hash": "sha256d"
-                }
-            ]
+            "hash": "x11"
         },
         "explorerBlockLink": "",
         "explorerTxLink": "",

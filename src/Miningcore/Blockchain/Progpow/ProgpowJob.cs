@@ -85,13 +85,18 @@ public class ProgpowJob : BitcoinJob
 
         var resultValue = new uint256(resultBytes);
         var resultValueBig = resultBytes.AsSpan().ToBigInteger();
-        // calc share-diff
-        var shareDiff = (double) new BigRational(ProgpowConstants.Diff1, resultValueBig) * shareMultiplier;
+        // calc share-diff using coin-specific Diff1
+        var diff1 = coin.Symbol == "FIRO" ? FiroConstants.Diff1 : RavencoinConstants.Diff1;
+        var shareDiff = (double) new BigRational(diff1, resultValueBig) * shareMultiplier;
         var stratumDifficulty = context.Difficulty;
         var ratio = shareDiff / stratumDifficulty;
 
         // check if the share meets the much harder block difficulty (block candidate)
         var isBlockCandidate = resultValue <= blockTargetValue;
+
+        // DEBUG: Log high-diff shares that might be close to block candidates
+        if(shareDiff >= 100)
+            logger.Info(() => $"High diff share: D={shareDiff:F1}, result={resultValue}, target={blockTargetValue}, isCandidate={isBlockCandidate}");
 
         // test if share meets at least workers current difficulty
         if(!isBlockCandidate && ratio < 0.99)
@@ -125,7 +130,14 @@ public class ProgpowJob : BitcoinJob
         }
 
         result.IsBlockCandidate = true;
-        result.BlockHash = resultBytes.ReverseInPlace().ToHexString();
+        result.BlockReward = rewardToPool?.ToDecimal(MoneyUnit.BTC) ?? 0;
+
+        // Use configured blockHasher (coins.json) for block identity. Kerrigan
+        // uses X11 for all block identity regardless of mining algo; Ravencoin
+        // uses reverse(sha256d). See the blockHasher coin config field.
+        Span<byte> identityHash = stackalloc byte[32];
+        blockHasher.Digest(headerBytes, identityHash);
+        result.BlockHash = identityHash.ToHexString();
 
         var blockBytes = SerializeBlock(headerBytes, coinbase, nonce, mixHashOut);
         var blockHex = blockBytes.ToHexString();
@@ -152,20 +164,118 @@ public class ProgpowJob : BitcoinJob
         var rawTransactionBuffer = BuildRawTransactionBuffer();
         var transactionCount = (uint) BlockTemplate.Transactions.Length + 1; // +1 for prepended coinbase tx
 
+        // BIP 141: When default_witness_commitment is present, the coinbase transaction
+        // must be serialized in segwit format with a witness nonce (32 zero bytes).
+        // The non-witness coinbase (used for txid/merkle root) stays unchanged.
+        // The block body must contain the witness-serialized coinbase.
+        var withWitnessCommitment = !string.IsNullOrEmpty(BlockTemplate.DefaultWitnessCommitment);
+        var coinbaseToWrite = withWitnessCommitment ? BuildWitnessCoinbase(coinbase) : coinbase;
+
         using var stream = new MemoryStream();
         {
             var bs = new BitcoinStream(stream, true);
 
-            bs.ReadWrite(ref header);
+            bs.ReadWrite(header);
             bs.ReadWrite(ref nonce);
-            bs.ReadWrite(ref mixHash);
+            bs.ReadWrite(mixHash);
             bs.ReadWriteAsVarInt(ref transactionCount);
 
-            bs.ReadWrite(ref coinbase);
-            bs.ReadWrite(ref rawTransactionBuffer);
+            bs.ReadWrite(coinbaseToWrite);
+            bs.ReadWrite(rawTransactionBuffer);
 
             return stream.ToArray();
         }
+    }
+
+    /// <summary>
+    /// Converts a non-witness coinbase transaction to segwit format per BIP 141.
+    /// Inserts marker+flag bytes after version and appends witness stack before locktime.
+    ///
+    /// Non-witness format:
+    ///   [version:4][inputs...][outputs...][locktime:4][extra_payload?]
+    ///
+    /// Witness format:
+    ///   [version:4][marker:0x00][flag:0x01][inputs...][outputs...][witness_count:1][item_len:32][nonce:32 zeros][locktime:4][extra_payload?]
+    /// </summary>
+    private byte[] BuildWitnessCoinbase(byte[] coinbase)
+    {
+        // The coinbase has this structure:
+        //   bytes 0-3:  version (4 bytes)
+        //   bytes 4..N: inputs + outputs (variable)
+        //   bytes N-3..N: locktime (4 bytes)
+        //   bytes N+1..: optional extra_payload (DIP3 coinbase_payload as varstring)
+        //
+        // For DIP3 special transactions (txVersion with type bits set), the coinbase_payload
+        // follows locktime as a var-length string. We need to find where locktime starts
+        // to insert the witness stack before it.
+        //
+        // Strategy: We know the coinbase structure because we built it.
+        // The locktime + optional coinbase_payload are at the end of coinbaseFinal.
+        // We can compute the split point: everything before locktime = version + inputs + outputs,
+        // and locktime + extra_payload come after.
+
+        using var stream = new MemoryStream();
+
+        // 1. Write version (first 4 bytes)
+        stream.Write(coinbase, 0, 4);
+
+        // 2. Write segwit marker (0x00) and flag (0x01) per BIP 141/144
+        stream.WriteByte(0x00);
+        stream.WriteByte(0x01);
+
+        // 3. Write everything between version and locktime (inputs + outputs)
+        //    The locktime is 4 bytes. After locktime, there may be a coinbase_payload (DIP3).
+        //    We need to figure out where the "tail" starts (locktime + extra_payload).
+        //
+        //    coinbaseFinal structure (built in BuildCoinbase):
+        //      [scriptsig_final][sequence:4][outputs...][locktime:4][coinbase_payload?]
+        //
+        //    The locktime (4 zero bytes) + coinbase_payload are the last part of coinbaseFinal.
+        //    We know the tail length: 4 bytes for locktime + coinbase_payload bytes.
+
+        var hasCoinbasePayload = coin.HasMasterNodes && !string.IsNullOrEmpty(masterNodeParameters?.CoinbasePayload);
+        var hasTxComment = !string.IsNullOrEmpty(txComment);
+
+        // Calculate tail size: locktime(4) + txComment(varstring) + coinbase_payload(varstring)
+        var tailSize = 4; // locktime
+
+        if(hasTxComment)
+        {
+            var commentBytes = Encoding.ASCII.GetBytes(txComment);
+            tailSize += VarIntSize((uint) commentBytes.Length) + commentBytes.Length;
+        }
+
+        if(hasCoinbasePayload)
+        {
+            var payloadBytes = masterNodeParameters.CoinbasePayload.HexToByteArray();
+            tailSize += VarIntSize((uint) payloadBytes.Length) + payloadBytes.Length;
+        }
+
+        // The "body" is everything after version and before the tail
+        var bodyLength = coinbase.Length - 4 - tailSize;
+        stream.Write(coinbase, 4, bodyLength);
+
+        // 4. Write witness stack: 1 item, 32 bytes, all zeros (witness reserved value)
+        stream.WriteByte(0x01);  // witness count: 1 stack item for the single input
+        stream.WriteByte(0x20);  // item length: 32 bytes
+        stream.Write(new byte[32], 0, 32); // witness nonce: 32 zero bytes
+
+        // 5. Write the tail (locktime + optional extra_payload)
+        var tailStart = coinbase.Length - tailSize;
+        stream.Write(coinbase, tailStart, tailSize);
+
+        return stream.ToArray();
+    }
+
+    /// <summary>
+    /// Returns the byte size of a Bitcoin varint encoding for the given value.
+    /// </summary>
+    private static int VarIntSize(uint value)
+    {
+        if(value < 0xFD) return 1;
+        if(value <= 0xFFFF) return 3;
+        if(value <= 0xFFFFFFFF) return 5;
+        return 9;
     }
 
     #region API-Surface
@@ -204,13 +314,22 @@ public class ProgpowJob : BitcoinJob
 
         this.Difficulty = new Target(System.Numerics.BigInteger.Parse(BlockTemplate.Target, NumberStyles.HexNumber)).Difficulty;
 
-        this.extraNoncePlaceHolderLength = ProgpowConstants.ExtranoncePlaceHolderLength;
+        this.extraNoncePlaceHolderLength = RavencoinConstants.ExtranoncePlaceHolderLength;
         this.shareMultiplier = shareMultiplier;
         
         if(coin.HasMasterNodes)
         {
             masterNodeParameters = BlockTemplate.Extra.SafeExtensionDataAs<MasterNodeBlockTemplateExtra>();
 
+            if(coin.HasSmartNodes)
+            {
+                if(masterNodeParameters.Extra?.ContainsKey("smartnode") == true)
+                {
+                    masterNodeParameters.Masternode = JToken.FromObject(masterNodeParameters.Extra["smartnode"]);
+                }
+            }
+
+            // Firo uses "znode" instead of "smartnode"
             if(coin.Symbol == "FIRO")
             {
                 if(masterNodeParameters.Extra?.ContainsKey("znode") == true)

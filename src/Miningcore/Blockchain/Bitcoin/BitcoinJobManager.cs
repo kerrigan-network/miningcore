@@ -1,5 +1,6 @@
 using Autofac;
 using Miningcore.Blockchain.Bitcoin.Configuration;
+using Miningcore.Blockchain.Bitcoin.Custom.Kerrigan;
 using Miningcore.Blockchain.Bitcoin.DaemonResponses;
 using Miningcore.Configuration;
 using Miningcore.Contracts;
@@ -10,10 +11,10 @@ using Miningcore.Messaging;
 using Miningcore.Rpc;
 using Miningcore.Stratum;
 using Miningcore.Time;
-using Miningcore.Blockchain.Bitcoin.Custom.Kerrigan;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using NLog;
+using Org.BouncyCastle.Crypto.Parameters;
 
 namespace Miningcore.Blockchain.Bitcoin;
 
@@ -30,25 +31,83 @@ public class BitcoinJobManager : BitcoinJobManagerBase<BitcoinJob>
 
     private BitcoinTemplate coin;
 
+    /// <summary>
+    /// Gets the parameters for the getblocktemplate RPC call.
+    /// If the coin configuration specifies blockTemplateRpcExtraParams, those are used.
+    /// Otherwise, defaults to base implementation (segwit rules).
+    /// </summary>
+    /// <returns>Array of parameters to pass to getblocktemplate RPC.</returns>
+    /// <remarks>
+    /// For Litecoin MWEB support, the coin configuration includes:
+    ///   "blockTemplateRpcExtraParams": [{"rules": ["segwit", "mweb"]}]
+    /// This ensures the daemon returns MWEB extension block data in the block template.
+    ///
+    /// Historical Note: MWEB rules were previously hardcoded based on coin.HasMWEB flag.
+    /// This has been removed in favor of explicit configuration for better maintainability
+    /// and to avoid duplication when both the flag and config were present.
+    /// </remarks>
     protected override object[] GetBlockTemplateParams()
     {
         var result = base.GetBlockTemplateParams();
 
+        // If coin configuration specifies explicit RPC parameters, use those instead of defaults
         if(coin.BlockTemplateRpcExtraParams != null)
         {
             if(coin.BlockTemplateRpcExtraParams.Type == JTokenType.Array)
-                result = result.Concat(coin.BlockTemplateRpcExtraParams.ToObject<object[]>() ?? Array.Empty<object>()).ToArray();
+                result = coin.BlockTemplateRpcExtraParams.ToObject<object[]>() ?? Array.Empty<object>();
             else
-                result = result.Concat(new []{ coin.BlockTemplateRpcExtraParams.ToObject<object>()}).ToArray();
+                result = new []{ coin.BlockTemplateRpcExtraParams.ToObject<object>() };
         }
 
         return result;
     }
+    
+    protected override async Task EnsureDaemonsSynchedAsync(CancellationToken ct)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+
+        var syncPendingNotificationShown = false;
+
+        do
+        {
+            var response = await rpc.ExecuteAsync<BlockTemplate>(logger,
+                BitcoinCommands.GetBlockTemplate, ct, GetBlockTemplateParams());
+
+            var isSynched = response.Error == null;
+
+            if(isSynched)
+            {
+                logger.Info(() => "All daemons synched with blockchain");
+                break;
+            }
+            else
+            {
+                logger.Debug(() => $"Daemon reports error: {response.Error?.Message}");
+            }
+
+            if(!syncPendingNotificationShown)
+            {
+                logger.Info(() => "Daemon is still syncing with network. Manager will be started once synced.");
+                syncPendingNotificationShown = true;
+            }
+
+            await ShowDaemonSyncProgressAsync(ct);
+        } while(await timer.WaitForNextTickAsync(ct));
+    }
 
     protected async Task<RpcResponse<BlockTemplate>> GetBlockTemplateAsync(CancellationToken ct)
     {
+        // Try GBTArgs from extraPoolConfig, then from raw Extra dict, then default
+        var gbtArgs = extraPoolConfig?.GBTArgs;
+
+        if(gbtArgs == null && poolConfig.Extra?.ContainsKey("GBTArgs") == true)
+            gbtArgs = Newtonsoft.Json.Linq.JToken.FromObject(poolConfig.Extra["GBTArgs"]);
+
+        // GBTArgs must be wrapped in array for positional params: "params": [{...}]
+        var gbtParams = gbtArgs != null ? new object[] { gbtArgs } : GetBlockTemplateParams();
+
         var result = await rpc.ExecuteAsync<BlockTemplate>(logger,
-            BitcoinCommands.GetBlockTemplate, ct, extraPoolConfig?.GBTArgs ?? (object) GetBlockTemplateParams());
+            BitcoinCommands.GetBlockTemplate, ct, gbtParams);
 
         return result;
     }
@@ -100,10 +159,16 @@ public class BitcoinJobManager : BitcoinJobManagerBase<BitcoinJob>
             var blockTemplate = response.Response;
             var job = currentJob;
 
+            // Defensive: ensure blockTemplate is not null even when response.Error is null
+            if(blockTemplate == null)
+            {
+                logger.Warn(() => $"Unable to update job. Daemon returned null block template.");
+                return (false, forceUpdate);
+            }
+
             var isNew = job == null ||
-                (blockTemplate != null &&
-                    (job.BlockTemplate?.PreviousBlockhash != blockTemplate.PreviousBlockhash ||
-                        blockTemplate.Height > job.BlockTemplate?.Height));
+                (job.BlockTemplate?.PreviousBlockhash != blockTemplate.PreviousBlockhash ||
+                    blockTemplate.Height > job.BlockTemplate?.Height);
 
             if(isNew)
                 messageBus.NotifyChainHeight(poolConfig.Id, blockTemplate.Height, poolConfig.Template);

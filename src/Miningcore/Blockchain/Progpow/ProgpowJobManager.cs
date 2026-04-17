@@ -2,6 +2,7 @@ using Autofac;
 using Miningcore.Blockchain.Bitcoin;
 using Miningcore.Blockchain.Bitcoin.Configuration;
 using Miningcore.Blockchain.Bitcoin.DaemonResponses;
+using Miningcore.Blockchain.Progpow.Custom.Firo;
 using Miningcore.Blockchain.Progpow.Custom.Kerrigan;
 using Miningcore.Configuration;
 using Miningcore.Contracts;
@@ -32,8 +33,17 @@ public class ProgpowJobManager : BitcoinJobManagerBase<ProgpowJob>
 
     private async Task<RpcResponse<BlockTemplate>> GetBlockTemplateAsync(CancellationToken ct)
     {
+        // Try GBTArgs from extraPoolConfig, then from raw Extra dict, then default
+        var gbtArgs = extraPoolConfig?.GBTArgs;
+
+        if(gbtArgs == null && poolConfig.Extra?.ContainsKey("GBTArgs") == true)
+            gbtArgs = Newtonsoft.Json.Linq.JToken.FromObject(poolConfig.Extra["GBTArgs"]);
+
+        // GBTArgs must be wrapped in array for positional params: "params": [{...}]
+        var gbtParams = gbtArgs != null ? new object[] { gbtArgs } : GetBlockTemplateParams();
+
         var result = await rpc.ExecuteAsync<BlockTemplate>(logger,
-            BitcoinCommands.GetBlockTemplate, ct, extraPoolConfig?.GBTArgs ?? (object) GetBlockTemplateParams());
+            BitcoinCommands.GetBlockTemplate, ct, gbtParams);
 
         return result;
     }
@@ -49,6 +59,8 @@ public class ProgpowJobManager : BitcoinJobManagerBase<ProgpowJob>
     {
         switch(coin.Symbol)
         {
+            case "FIRO":
+                return new FiroJob();
             case "KRGN":
                 return new KerriganProgpowJob();
         }
@@ -85,7 +97,15 @@ public class ProgpowJobManager : BitcoinJobManagerBase<ProgpowJob>
                 {
                     logger.Info(() => "Loading current light cache ...");
 
-                    await coin.ProgpowHasher.GetCacheAsync(logger, (int) blockTemplate.Response.Height, ct);
+                    // Extract daemon-provided epoch (Firo provides pprpcepoch since FiroPow starts at activation height, not genesis)
+                    int? daemonEpoch = null;
+                    if(blockTemplate.Response.Extra?.TryGetValue("pprpcepoch", out var epochObj) == true && epochObj != null)
+                    {
+                        daemonEpoch = Convert.ToInt32(epochObj);
+                        logger.Info(() => $"Daemon provided epoch {daemonEpoch} for block {blockTemplate.Response.Height}");
+                    }
+
+                    await coin.ProgpowHasher.GetCacheAsync(logger, (int) blockTemplate.Response.Height, ct, daemonEpoch);
 
                     logger.Info(() => "Loaded current light cache");
                     break;
@@ -118,10 +138,16 @@ public class ProgpowJobManager : BitcoinJobManagerBase<ProgpowJob>
             var blockTemplate = response.Response;
             var job = currentJob;
 
+            // Defensive: ensure blockTemplate is not null even when response.Error is null
+            if(blockTemplate == null)
+            {
+                logger.Warn(() => $"Unable to update job. Daemon returned null block template.");
+                return (false, forceUpdate);
+            }
+
             var isNew = job == null ||
-                (blockTemplate != null &&
-                    (job.BlockTemplate?.PreviousBlockhash != blockTemplate.PreviousBlockhash ||
-                        blockTemplate.Height > job.BlockTemplate?.Height));
+                (job.BlockTemplate?.PreviousBlockhash != blockTemplate.PreviousBlockhash ||
+                    blockTemplate.Height > job.BlockTemplate?.Height);
 
             if(isNew)
                 messageBus.NotifyChainHeight(poolConfig.Id, blockTemplate.Height, poolConfig.Template);
@@ -130,9 +156,18 @@ public class ProgpowJobManager : BitcoinJobManagerBase<ProgpowJob>
             {
                 job = CreateJob();
 
-                var blockHeight = blockTemplate?.Height ?? currentJob.BlockTemplate.Height;
+                // blockTemplate is guaranteed non-null due to check above
+                var blockHeight = blockTemplate.Height;
 
-                var progpowHasher = await coin.ProgpowHasher.GetCacheAsync(logger, (int) blockHeight, ct);
+                // Extract daemon-provided epoch (Firo provides pprpcepoch since FiroPow starts at activation height, not genesis)
+                int? daemonEpoch = null;
+                if(blockTemplate.Extra?.TryGetValue("pprpcepoch", out var epochObj) == true && epochObj != null)
+                {
+                    daemonEpoch = Convert.ToInt32(epochObj);
+                    logger.Info(() => $"Using daemon-provided epoch {daemonEpoch} for block {blockHeight}");
+                }
+
+                var progpowHasher = await coin.ProgpowHasher.GetCacheAsync(logger, (int) blockHeight, ct, daemonEpoch);
 
                 job.Init(blockTemplate, NextJobId(),
                     poolConfig, extraPoolConfig, clusterConfig, clock, poolAddressDestination, network, isPoS,
@@ -248,9 +283,6 @@ public class ProgpowJobManager : BitcoinJobManagerBase<ProgpowJob>
 
         if(submission is not object[] submitParams)
             throw new StratumException(StratumError.Other, "invalid params");
-
-        if(submitParams.Length < 5)
-            throw new StratumException(StratumError.Other, "invalid param count");
 
         var context = worker.ContextAs<ProgpowWorkerContext>();
 

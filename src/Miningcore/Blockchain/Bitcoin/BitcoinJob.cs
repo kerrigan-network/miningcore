@@ -107,12 +107,12 @@ public class BitcoinJob
 
             // serialize (simulated) input transaction
             bs.ReadWriteAsVarInt(ref txInputCount);
-            bs.ReadWrite(ref sha256Empty);
+            bs.ReadWrite(sha256Empty);
             bs.ReadWrite(ref txInPrevOutIndex);
 
             // signature script initial part
             bs.ReadWriteAsVarInt(ref sigScriptLength);
-            bs.ReadWrite(ref sigScriptInitialBytes);
+            bs.ReadWrite(sigScriptInitialBytes);
 
             // done
             coinbaseInitial = stream.ToArray();
@@ -125,14 +125,14 @@ public class BitcoinJob
             var bs = new BitcoinStream(stream, true);
 
             // signature script final part
-            bs.ReadWrite(ref scriptSigFinalBytes);
+            bs.ReadWrite(scriptSigFinalBytes);
 
             // tx in sequence
             bs.ReadWrite(ref txInSequence);
 
             // serialize output transaction
             var txOutBytes = SerializeOutputTransaction(txOut);
-            bs.ReadWrite(ref txOutBytes);
+            bs.ReadWrite(txOutBytes);
 
             // misc
             bs.ReadWrite(ref txLockTime);
@@ -180,18 +180,6 @@ public class BitcoinJob
             byte[] raw;
             uint rawLength;
 
-            // serialize witness (segwit)
-            if(withDefaultWitnessCommitment)
-            {
-                amount = 0;
-                raw = BlockTemplate.DefaultWitnessCommitment.HexToByteArray();
-                rawLength = (uint) raw.Length;
-
-                bs.ReadWrite(ref amount);
-                bs.ReadWriteAsVarInt(ref rawLength);
-                bs.ReadWrite(ref raw);
-            }
-
             // serialize outputs
             foreach(var output in tx.Outputs)
             {
@@ -202,7 +190,19 @@ public class BitcoinJob
 
                 bs.ReadWrite(ref amount);
                 bs.ReadWriteAsVarInt(ref rawLength);
-                bs.ReadWrite(ref raw);
+                bs.ReadWrite(raw);
+            }
+
+            // serialize witness (segwit) - must be AFTER regular outputs per BIP 141
+            if(withDefaultWitnessCommitment)
+            {
+                amount = 0;
+                raw = BlockTemplate.DefaultWitnessCommitment.HexToByteArray();
+                rawLength = (uint) raw.Length;
+
+                bs.ReadWrite(ref amount);
+                bs.ReadWriteAsVarInt(ref rawLength);
+                bs.ReadWrite(raw);
             }
 
             return stream.ToArray();
@@ -249,6 +249,9 @@ public class BitcoinJob
         if (coin.HasMinerFund)
             rewardToPool = CreateMinerFundOutputs(tx, rewardToPool);
 
+        if(coin.HasCommunityAddress)
+            rewardToPool = CreateCommunityAddressOutputs(tx, rewardToPool);
+
         // Remaining amount goes to pool
         tx.Outputs.Add(rewardToPool, poolAddressDestination);
 
@@ -280,6 +283,22 @@ public class BitcoinJob
         return submissions.TryAdd(key, true);
     }
 
+    /// <summary>
+    /// Serializes the block header with support for version rolling (ASICBOOST).
+    /// </summary>
+    /// <param name="coinbaseHash">The hash of the coinbase transaction</param>
+    /// <param name="nTime">The block timestamp</param>
+    /// <param name="nonce">The block nonce</param>
+    /// <param name="versionMask">Optional mask defining which version bits can be modified (from worker context)</param>
+    /// <param name="versionBits">Optional version bits submitted by miner for ASICBOOST optimization</param>
+    /// <returns>Serialized block header bytes ready for hashing</returns>
+    /// <remarks>
+    /// When both versionMask and versionBits are provided (ASICBOOST enabled):
+    /// 1. Preserves template version bits outside the mask: (version &amp; ~versionMask)
+    /// 2. Applies miner's rolled bits within the mask: (versionBits &amp; versionMask)
+    /// 3. Combines them with bitwise OR to produce the final version
+    /// This allows miners to optimize hash computation while maintaining protocol compliance.
+    /// </remarks>
     protected byte[] SerializeHeader(Span<byte> coinbaseHash, uint nTime, uint nonce, uint? versionMask, uint? versionBits)
     {
         // build merkle-root
@@ -288,7 +307,8 @@ public class BitcoinJob
         // Build version
         var version = BlockTemplate.Version;
 
-        // Overt-ASIC boost
+        // Overt-ASIC boost: Apply version rolling if negotiated
+        // Formula: final_version = (template_version & ~mask) | (miner_bits & mask)
         if(versionMask.HasValue && versionBits.HasValue)
             version = (version & ~versionMask.Value) | (versionBits.Value & versionMask.Value);
 
@@ -332,6 +352,7 @@ public class BitcoinJob
         // check if the share meets the much harder block difficulty (block candidate)
         var isBlockCandidate = headerValue <= blockTargetValue;
 
+
         // test if share meets at least workers current difficulty
         if(!isBlockCandidate && ratio < 0.99)
         {
@@ -361,6 +382,7 @@ public class BitcoinJob
         if(isBlockCandidate)
         {
             result.IsBlockCandidate = true;
+            result.BlockReward = rewardToPool?.ToDecimal(MoneyUnit.BTC) ?? 0;
 
             Span<byte> blockHash = stackalloc byte[32];
             blockHasher.Digest(headerBytes, blockHash, nTime);
@@ -400,15 +422,44 @@ public class BitcoinJob
         {
             var bs = new BitcoinStream(stream, true);
 
-            bs.ReadWrite(ref header);
+            bs.ReadWrite(header);
             bs.ReadWriteAsVarInt(ref transactionCount);
 
-            bs.ReadWrite(ref coinbase);
-            bs.ReadWrite(ref rawTransactionBuffer);
+            bs.ReadWrite(coinbase);
+            bs.ReadWrite(rawTransactionBuffer);
 
             // POS coins require a zero byte appended to block which the daemon replaces with the signature
             if(isPoS)
                 bs.ReadWrite((byte) 0);
+
+            /// MWEB (Mimblewimble Extension Block) Support for Litecoin
+            ///
+            /// Litecoin activated MWEB (Mimblewimble privacy feature) at block 2257920 (May 19, 2022).
+            /// Mining pools must append MWEB data to blocks for proper validation by the Litecoin network.
+            ///
+            /// Block Serialization Format:
+            ///   Standard Block: [header][tx_count][coinbase][transactions]
+            ///   MWEB Block:     [header][tx_count][coinbase][transactions][0x01 separator][mweb_data]
+            ///
+            /// The MWEB data is provided by litecoin-core (v0.21.2+) in the block template response
+            /// when the pool requests block templates with rules: ["segwit", "mweb"].
+            ///
+            /// Configuration Requirements:
+            ///   - coins.json: "hasMWEB": true
+            ///   - coins.json: "blockTemplateRpcExtraParams": [{"rules": ["segwit", "mweb"]}]
+            ///   - Litecoin daemon: v0.21.2 or newer
+            ///
+            /// Reference: https://github.com/litecoin-project/litecoin/blob/0.21/doc/mweb/mining-changes.md
+            /// See also: src/Miningcore/Blockchain/Bitcoin/DaemonResponses/MwebBlockTemplateExtra.cs
+            if(coin.HasMWEB)
+            {
+                var separator = new byte[] { 0x01 };
+                var mweb = BlockTemplate.Extra.SafeExtensionDataAs<MwebBlockTemplateExtra>();
+                var mwebRaw = mweb.Mweb.HexToByteArray();
+
+                bs.ReadWrite(separator);
+                bs.ReadWrite(mwebRaw);
+            }
 
             return stream.ToArray();
         }
@@ -542,6 +593,20 @@ public class BitcoinJob
 
     #endregion // Founder
 
+    #region CommunityAddress
+
+    protected virtual Money CreateCommunityAddressOutputs(Transaction tx, Money reward)
+    {
+        if(BlockTemplate.CommunityAutonomousValue > 0)
+        {
+            var payeeReward = BlockTemplate.CommunityAutonomousValue;
+            var payeeAddress = BitcoinUtils.AddressToDestination(BlockTemplate.CommunityAutonomousAddress, network);
+            tx.Outputs.Add(payeeReward, payeeAddress);
+        }
+        return reward;
+    }
+    #endregion // CommunityAddres
+
     #region API-Surface
 
     public BlockTemplate BlockTemplate { get; protected set; }
@@ -593,7 +658,7 @@ public class BitcoinJob
         {
             masterNodeParameters = BlockTemplate.Extra.SafeExtensionDataAs<MasterNodeBlockTemplateExtra>();
 
-            if((coin.Symbol == "RTM") || (coin.Symbol == "THOON") || (coin.Symbol == "YERB") || (coin.Symbol == "BTRM"))
+            if(coin.HasSmartNodes)
             {
                 if(masterNodeParameters.Extra?.ContainsKey("smartnode") == true)
                 {
